@@ -1,12 +1,11 @@
 import os 
 from box.exceptions import BoxValueError 
 import yaml
-from text_summarizer.logging import logger
 from ensure import ensure_annotations
 from box import ConfigBox
 from pathlib import Path
 from typing import Any
-
+from src.text_summarizer.logging import logger
 @ensure_annotations
 def read_yaml(path_to_yaml:Path) -> ConfigBox:
     """Reads a yaml file and returns a ConfigBox object.
