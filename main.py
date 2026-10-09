@@ -1,16 +1,17 @@
-from text_summarizer.logging import logger
-from src.text_summarizer.pipeline.stage_03_data_transformation import DataTransformationTrainingPipeline
+from src.text_summarizer.logging import logger
+from src.text_summarizer.pipeline.stage_05_model_evaluation import ModelEvaluationPipeline
 
 
-STAGE_NAME = "Data Transformation Stage"
+
+STAGE_NAME = "MOdEL EvALUATION"
 
 try:
 
     logger.info(f">>>>> stage {STAGE_NAME} started <<<<<")
 
-    data_transformation = DataTransformationTrainingPipeline()
+    model_evaluation = ModelEvaluationPipeline()
 
-    data_transformation.main()
+    model_evaluation.main()
 
     logger.info(f">>>>> stage {STAGE_NAME} completed <<<<<\n\nx==========x")
 
