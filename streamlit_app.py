@@ -2,10 +2,11 @@ import html
 import io
 import json
 import re
+import sys
 import time
+from pathlib import Path
 from collections import Counter
 
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -18,9 +19,7 @@ st.set_page_config(
     layout="wide",
 )
 
-API_BASE = "http://127.0.0.1:8000"
-PREDICT_URL = f"{API_BASE}/predict"
-HEALTH_URL = f"{API_BASE}/health"
+
 
 MAX_WORDS = 5000      # max words accepted in the UI
 CHUNK_WORDS = 350     # Pegasus handles ~512 tokens, so long texts are split
@@ -473,12 +472,30 @@ def word_count(value: str) -> int:
     return len(value.split())
 
 
-@st.cache_data(ttl=10, show_spinner=False)
-def api_online() -> bool:
+@st.cache_resource(show_spinner=False)
+def load_summarizer():
+    """Load the project's own PredictionPipeline once and share it between sessions.
+
+    Returns (predict_function, lock).
+    """
+    import threading
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+    from text_summarizer.pipeline.prediction import PredictionPipeline
+
+    return PredictionPipeline().predict, threading.Lock()
+
+
+def ensure_model():
+    """Load the model (the first run can take a while)."""
     try:
-        return requests.get(HEALTH_URL, timeout=2).ok
-    except requests.exceptions.RequestException:
-        return False
+        with st.spinner("Loading the model... the first run can take a few minutes."):
+            load_summarizer()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Could not load PredictionPipeline: {exc}. "
+            "Check that the trained model files exist in the project folder."
+        )
 
 
 def mostly_non_english(text: str) -> bool:
@@ -607,29 +624,18 @@ def read_uploaded(uploaded) -> str:
     raise ValueError("Unsupported file type.")
 
 
-def call_api(text: str) -> str:
-    """Send one chunk to the FastAPI backend and return its summary."""
+def call_model(text: str) -> str:
+    """Summarize one chunk with the loaded model."""
     try:
-        response = requests.post(PREDICT_URL, params={"text": text}, timeout=180)
-    except requests.exceptions.ConnectionError:
-        raise RuntimeError(
-            "Cannot reach the API. Start the FastAPI backend (python app.py) and try again."
-        )
-    except requests.exceptions.Timeout:
-        raise RuntimeError("The request timed out. Try again with a shorter text.")
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"Request failed: {exc}")
+        predict, lock = load_summarizer()
+        with lock:  # one generation at a time keeps memory use predictable
+            output = predict(text)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Summarization failed: {exc}")
 
-    if not response.ok:
-        try:
-            detail = response.json().get("detail", response.text)
-        except ValueError:
-            detail = response.text
-        raise RuntimeError(f"API error ({response.status_code}): {detail}")
-
-    summary = response.json().get("summary", "").replace("<n>", " ").strip()
+    summary = str(output).replace("<n>", " ").strip()
     if not summary:
-        raise RuntimeError("The API returned an empty summary.")
+        raise RuntimeError("The model returned an empty summary.")
     return summary
 
 
@@ -638,8 +644,8 @@ def condense(text: str) -> str:
     for _ in range(4):  # safety limit
         if word_count(text) <= CHUNK_WORDS:
             break
-        text = " ".join(call_api(chunk) for chunk in split_chunks(text))
-    return call_api(text)
+        text = " ".join(call_model(chunk) for chunk in split_chunks(text))
+    return call_model(text)
 
 
 def run_summary(text: str, concise: bool, on_progress):
@@ -650,7 +656,7 @@ def run_summary(text: str, concise: bool, on_progress):
     parts = []
     for i, chunk in enumerate(chunks, start=1):
         on_progress(i / (len(chunks) + 1), f"Summarizing part {i} of {len(chunks)}...")
-        parts.append(call_api(chunk))
+        parts.append(call_model(chunk))
 
     if len(chunks) > 1 and concise:
         on_progress(0.95, "Merging into one short summary...")
@@ -760,12 +766,7 @@ with st.container(key="fx_host"):
 # =============================================================
 # Top bar + hero
 # =============================================================
-online = api_online()
-status_html = (
-    '<span class="status on">● API online</span>'
-    if online
-    else '<span class="status off">● API offline</span>'
-)
+status_html = '<span class="status on">● Pegasus</span>'
 
 nav_left, nav_status, nav_theme = st.columns([5, 2, 2], vertical_alignment="center")
 nav_left.markdown(
@@ -876,8 +877,10 @@ with tab_summarize:
             elif over:
                 st.warning(f"Text is over {MAX_WORDS:,} words. Shorten it and try again.")
             else:
-                progress = st.progress(0.0, text="Starting...")
+                progress = None
                 try:
+                    ensure_model()
+                    progress = st.progress(0.0, text="Starting...")
                     summary, parts, elapsed = run_summary(
                         current,
                         concise=(detail == "Concise"),
@@ -892,7 +895,8 @@ with tab_summarize:
                 except RuntimeError as exc:
                     st.error(str(exc))
                 finally:
-                    progress.empty()
+                    if progress is not None:
+                        progress.empty()
 
         if st.session_state.summary:
             fmt_col, hl_col = st.columns([3, 2], vertical_alignment="center")
