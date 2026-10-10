@@ -1,4 +1,3 @@
-
 import logging
 
 import uvicorn
@@ -12,7 +11,6 @@ from text_summarizer.pipeline.prediction import PredictionPipeline
 # Logging
 # =============================
 logging.basicConfig(level=logging.INFO)
-
 logger = logging.getLogger("text_summarizer_api")
 
 
@@ -22,7 +20,7 @@ logger = logging.getLogger("text_summarizer_api")
 app = FastAPI(
     title="Pegasus Text Summarization API",
     description="Generate summaries using a trained Pegasus model",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -30,9 +28,7 @@ app = FastAPI(
 # Load Model Once
 # =============================
 logger.info("Loading the prediction pipeline...")
-
 prediction_pipeline = PredictionPipeline()
-
 logger.info("Prediction pipeline loaded successfully.")
 
 
@@ -45,7 +41,7 @@ def index():
 
 
 # =============================
-# Health Check
+# Health Check (used by the UI "API online" badge)
 # =============================
 @app.get("/health", tags=["Health"])
 def health():
@@ -56,53 +52,27 @@ def health():
 
 
 # =============================
-# Prediction Endpoint
+# Predict
 # =============================
 @app.post("/predict", tags=["Prediction"])
 def predict(
-    text: str = Query(
-        ...,
-        min_length=1,
-        description="Text to summarize",
-    )
+    text: str = Query(..., min_length=1, max_length=20000, description="Text to summarize"),
 ):
-    text = text.strip()
-
-    if not text:
-        raise HTTPException(
-            status_code=400,
-            detail="Please enter text to summarize.",
-        )
+    clean_text = text.strip()
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Text is empty.")
 
     try:
-        logger.info(
-            "Received text with %d characters.",
-            len(text),
-        )
-
-        summary = prediction_pipeline.predict(text)
-
-        logger.info("Summary generated successfully.")
-
-        return {
-            "summary": summary,
-        }
-
-    except Exception as e:
-        logger.exception("Prediction failed.")
-
+        summary = prediction_pipeline.predict(clean_text)  # change if your method name differs
+    except Exception:
+        logger.exception("Prediction failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Prediction failed: {str(e)}",
-        ) from e
+            detail="Summarization failed. Check the server logs.",
+        )
+
+    return {"summary": summary}
 
 
-# =============================
-# Run Server
-# =============================
 if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-    )
+    uvicorn.run(app, host="127.0.0.1", port=8000)
