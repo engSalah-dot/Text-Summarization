@@ -311,8 +311,8 @@ When adding or changing a pipeline stage, follow this order:
 ## 🙏 Acknowledgements
 
 - [Hugging Face Transformers](https://github.com/huggingface/transformers) and the [T5](https://arxiv.org/abs/1910.10683) authors
-- The project structure is based on the *End-to-end Text Summarization* template by [entbappy](https://github.com/entbappy/End-to-end-Text-Summarization)
-- [Streamlit](https://streamlit.io/)
+- The project structure is based on the *End-to-end Text Summarization* template by (https://github.com/engSalah-dot/Text-Summarization)
+- [Streamlit](https://text-summarization-edw7makqgxqte9bgozvakk.streamlit.app/?theme=dark)
 
 ---
 
