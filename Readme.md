@@ -2,7 +2,7 @@
 
 # 📝 Text Summarization with T5
 
-**An end-to-end NLP project: fine-tune a T5 transformer on conversational data, serve it with FastAPI, and use it through a modern Streamlit interface.**
+**An end-to-end NLP project: fine-tune a T5 transformer on conversational data and use it through a modern Streamlit interface.**
 
 [![Live Demo](https://img.shields.io/badge/🚀%20Try%20the%20live%20demo-Streamlit-FF4B4B)](https://text-summarization-edw7makqgxqte9bgozvakk.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
@@ -24,7 +24,6 @@
 - [Usage](#-usage)
 - [Results](#-results)
 - [Training Pipeline](#-training-pipeline)
-- [Run with Docker](#-run-with-docker)
 - [Configuration](#%EF%B8%8F-configuration)
 - [Troubleshooting](#-troubleshooting)
 - [Limitations](#-limitations)
@@ -40,8 +39,7 @@
 This project turns long English conversations into short, readable summaries. It covers the full machine-learning lifecycle:
 
 1. **Train** – fine-tune [`t5-small`](https://huggingface.co/t5-small) (60M parameters) on the [SAMSum](https://huggingface.co/datasets/knkarthick/samsum) dataset (16K+ dialogues) using Hugging Face Transformers through a modular, config-driven pipeline.
-2. **Serve** – expose the trained model through a **FastAPI** REST API.
-3. **Use** – summarize text from a polished **Streamlit** web app that talks to the API.
+2. **Use** – summarize text from a polished **Streamlit** web app that loads the trained model directly (no separate API server needed).
 
 The code follows a clean component / pipeline / configuration-manager layout, so every stage can be changed from YAML files without touching the core logic.
 
@@ -51,13 +49,12 @@ The code follows a clean component / pipeline / configuration-manager layout, so
 
 ## ✨ Features
 
-**Model and API**
+**Model and app**
 
 - Fine-tuned T5-small abstractive summarizer (ROUGE-L ≈ 0.39 on the SAMSum test set — see [Results](#-results))
-- FastAPI service with interactive Swagger docs (`/docs`) and a `/health` endpoint
-- Model is loaded once at start-up, not per request
+- Model is loaded once and cached with `@st.cache_resource`, not per request
 - Config-driven training pipeline (`config.yaml` and `params.yaml`)
-- Dockerfile and GitHub Actions workflow folder included
+- Single-command deployment on [Streamlit Community Cloud](https://share.streamlit.io/)
 
 **Web interface**
 
@@ -69,7 +66,7 @@ The code follows a clean component / pipeline / configuration-manager layout, so
 - **Quality stats**: reduction %, reading time saved, Flesch readability (before → after), processing time
 - **Listen** to the summary (browser text-to-speech), **copy** it, or **download** it as `.txt` / `.md`
 - **Dark and light mode** with an animated circular-reveal transition (state is kept in the URL, e.g. `?theme=light`)
-- Session **history**, live **API status** badge, and a warning when the text is not English
+- Session **history** and a warning when the text is not English
 - Keyboard shortcut: `Ctrl + Enter` to summarize
 
 ---
@@ -79,13 +76,12 @@ The code follows a clean component / pipeline / configuration-manager layout, so
 ```mermaid
 flowchart LR
     U([User]) --> S[Streamlit UI<br/>streamlit_app.py]
-    S -- "POST /predict" --> A[FastAPI<br/>app.py]
-    A --> P[PredictionPipeline]
+    S --> P[PredictionPipeline]
     P --> M[(Fine-tuned<br/>T5-small model)]
-    M --> P --> A --> S --> U
+    M --> P --> S --> U
 ```
 
-For texts longer than the model's input window, the UI splits the text into chunks of about 350 words, calls the API once per chunk, and combines the results.
+The Streamlit app loads the trained model in-process. For texts longer than the model's input window, the app splits the text into chunks of about 350 words, runs inference once per chunk, and combines the results.
 
 ---
 
@@ -96,10 +92,9 @@ For texts longer than the model's input window, the UI splits the text into chun
 | Model | T5-small (`t5-small`), Hugging Face Transformers, PyTorch |
 | Dataset | SAMSum (`knkarthick/samsum`) — 16K+ dialogues with human summaries |
 | Evaluation | ROUGE (`evaluate` / `rouge-score`) |
-| Backend | FastAPI, Uvicorn |
-| Frontend | Streamlit, custom CSS and JavaScript |
+| App | Streamlit, custom CSS and JavaScript |
 | Config and packaging | YAML, `setup.py`, `template.py` |
-| DevOps | Docker, GitHub Actions |
+| DevOps | GitHub Actions |
 
 ---
 
@@ -120,13 +115,11 @@ Text-Summarization/
 │   ├── logging/            # Logger setup
 │   ├── utils/              # Helper functions
 │   └── constants/          # Project constants
-├── app.py                  # FastAPI backend
-├── streamlit_app.py        # Streamlit frontend
+├── streamlit_app.py        # Streamlit app (model + UI in one place)
 ├── main.py                 # Runs the training pipeline
 ├── params.yaml             # Training hyper-parameters
 ├── template.py             # Project scaffolding script
 ├── setup.py
-├── Dockerfile
 ├── requirements.txt
 └── LICENSE
 ```
@@ -161,15 +154,7 @@ conda activate summary
 pip install -r requirements.txt
 ```
 
-### 4. Start the backend (terminal 1)
-
-```bash
-python app.py
-```
-
-The API is now available at `http://127.0.0.1:8000` and the Swagger docs at `http://127.0.0.1:8000/docs`.
-
-### 5. Start the web app (terminal 2)
+### 4. Run the app
 
 ```bash
 streamlit run streamlit_app.py
@@ -177,48 +162,25 @@ streamlit run streamlit_app.py
 
 Open the URL printed in the terminal (usually `http://localhost:8501`).
 
+> The first request is slow because the model is being loaded into memory; after that, inference is fast (GPU) or moderate (CPU).
+
 ---
 
 ## 💡 Usage
-
-### Web app
 
 1. Paste text, click **Try a sample**, or upload a file.
 2. Choose **Standard** or **Concise**.
 3. Click **Summarize** (or press `Ctrl + Enter`).
 4. Switch between paragraph and bullets, highlight key terms, listen, copy, or download the result.
 
-### REST API
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | Redirects to the Swagger docs |
-| `GET` | `/health` | Health check and model status |
-| `POST` | `/predict?text=...` | Returns a summary of the given text |
-
-```bash
-curl -X POST "http://127.0.0.1:8000/predict?text=The%20James%20Webb%20Space%20Telescope%20is%20the%20largest%20space%20telescope%20ever%20built."
-```
-
-Example response:
-
-```json
-{
-  "summary": "The James Webb Space Telescope observes the universe in infrared light and has revealed new details about early galaxies."
-}
-```
-
-### Python
+You can also use the prediction pipeline directly from Python:
 
 ```python
-import requests
+from src.text_summarizer.pipeline.prediction import PredictionPipeline
 
-response = requests.post(
-    "http://127.0.0.1:8000/predict",
-    params={"text": "Your long English text here..."},
-    timeout=180,
-)
-print(response.json()["summary"])
+pipe = PredictionPipeline()
+summary = pipe.predict("summarize: Hannah: Hey, do you have Betty's number? Amanda: Lemme check...")
+print(summary)
 ```
 
 ---
@@ -301,18 +263,7 @@ When adding or changing a pipeline stage, follow this order:
 5. Update the components (`src/text_summarizer/components`)
 6. Update the pipeline (`src/text_summarizer/pipeline`)
 7. Update `main.py`
-8. Update `app.py`
-
----
-
-## 🐳 Run with Docker
-
-```bash
-docker build -t text-summarizer .
-docker run -p 8000:8000 text-summarizer
-```
-
-If your `app.py` listens on a different port, change the `-p host:container` mapping to match.
+8. Update `streamlit_app.py`
 
 ---
 
@@ -323,7 +274,6 @@ If your `app.py` listens on a different port, change the `-p host:container` map
 | `config/config.yaml` | Paths and artifact locations for each pipeline stage |
 | `params.yaml` | Training hyper-parameters |
 | `.streamlit/config.toml` | Streamlit base theme |
-| `streamlit_app.py` → `API_BASE` | Backend URL used by the web app (default `http://127.0.0.1:8000`) |
 | `streamlit_app.py` → `CHUNK_WORDS`, `MAX_WORDS` | Chunk size and maximum input length |
 
 ---
@@ -332,12 +282,10 @@ If your `app.py` listens on a different port, change the `-p host:container` map
 
 | Problem | Fix |
 |---|---|
-| UI shows **API offline** | Start the backend with `python app.py` and check that `API_BASE` points to it |
-| `404` on `/predict` | Make sure `app.py` defines the `POST /predict` route |
-| `Cannot reach the API` | The backend is not running, or the port or URL is wrong |
-| Very slow first request | The model is loading or running on CPU; later requests are faster |
+| Very slow first request | The model is loading into memory or running on CPU; later requests are faster |
 | Poor summary for non-English text | The model is trained for English only |
 | Model copies the input instead of summarizing | The `summarize: ` task prefix is missing from the input — T5 requires it at inference time |
+| App crashes on startup | Make sure the trained model files exist at the path configured in `config.yaml` |
 
 ---
 
@@ -352,10 +300,10 @@ If your `app.py` listens on a different port, change the `-p host:container` map
 ## 🗺 Roadmap
 
 - [x] Add ROUGE scores and example outputs to this README
-- [ ] Selectable summary length (short / medium / long) in the API
+- [ ] Selectable summary length (short / medium / long)
 - [ ] Multilingual support
 - [ ] Automated tests and CI checks
-- [ ] Deploy the API as a separate hosted service
+- [ ] Optional REST API layer (FastAPI) for programmatic access
 - [ ] Try larger backbones (T5-base) for higher ROUGE
 
 ---
@@ -364,7 +312,7 @@ If your `app.py` listens on a different port, change the `-p host:container` map
 
 - [Hugging Face Transformers](https://github.com/huggingface/transformers) and the [T5](https://arxiv.org/abs/1910.10683) authors
 - The project structure is based on the *End-to-end Text Summarization* template by [entbappy](https://github.com/entbappy/End-to-end-Text-Summarization)
-- [FastAPI](https://fastapi.tiangolo.com/) and [Streamlit](https://streamlit.io/)
+- [Streamlit](https://streamlit.io/)
 
 ---
 
